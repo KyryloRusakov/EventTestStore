@@ -1,0 +1,231 @@
+{{ 'event-product-page.css' | asset_url | stylesheet_tag }}
+
+<div class="event-product">
+  <div class="event-product__wrapper">
+    <div class="event-product__media">
+      {% if product.featured_image %}
+        <img src="{{ product.featured_image | image_url: width: 800 }}" alt="{{ product.title }}" class="event-product__image" />
+      {% endif %}
+    </div>
+
+    <div class="event-product__details">
+      {% for block in section.blocks %}
+        {% case block.type %}
+          {% when 'product_title' %}
+            <h1 class="event-product__title">{{ product.title }}</h1>
+          
+          {% when 'product_description' %}
+            <div class="event-product__description">{{ product.description }}</div>
+
+            <form method="post" action="/cart/add" id="event-product-form" class="event-product__form">
+            {% when 'product_variants' %}
+              <div class="event-product__variants">
+                <label class="event-product__label">Тип події</label>
+                <select id="option1" name="option1" class="event-product__select" required></select>
+      
+                <label class="event-product__label">Дата</label>
+                <select id="option2" name="option2" class="event-product__select" required></select>
+      
+                <label class="event-product__label">Час</label>
+                <select id="option3" name="option3" class="event-product__select" required></select>
+              </div>
+              {% when 'product_price' %}
+              <div id="variantPrice" class="event-product__price">
+                {{ product.price | money }}
+              </div>
+
+              {% when 'personal_info_fields' %}
+              <div class="event-product__personal-info">
+                <input type="text" name="properties[Ім’я]" placeholder="Ім’я" required />
+                <input type="text" name="properties[Прізвище]" placeholder="Прізвище" required />
+                <input type="email" name="properties[Email]" placeholder="Email" required />
+                <input type="tel" name="properties[Номер телефону]" placeholder="Номер телефону" required />
+                <input type="text" name="properties[Поштовий код]" placeholder="Поштовий код" required />
+                <input type="date" name="properties[Дата народження]" placeholder="Дата народження" required />
+                <select name="properties[Гендер]" required>
+                  <option value="">Оберіть гендер</option>
+                  <option value="Чоловіча">Чоловіча</option>
+                  <option value="Жіноча">Жіноча</option>
+                  <option value="Інше">Інше</option>
+                </select>
+                <input type="text" name="properties[Код користувача]" placeholder="Код користувача (необов’язково)" />
+              </div>
+      
+              {% when 'checkout_button' %}
+              <button type="submit" class="event-product__checkout">До оформлення</button>
+            </form>
+        {% endcase %}
+      {% endfor %}
+
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const variants = {{ product.variants | json }};
+  const form = document.getElementById("event-product-form");
+  const priceBox = document.getElementById("variantPrice");
+  const option1 = document.getElementById("option1");
+  const option2 = document.getElementById("option2");
+  const option3 = document.getElementById("option3");
+  const checkoutButton = form.querySelector(".event-product__checkout");
+
+  if (!form || !priceBox || !option1 || !option2 || !option3 || !checkoutButton) return;
+
+  const formatMoney = (cents) => {
+    return new Intl.NumberFormat('uk-UA', {
+      style: 'currency',
+      currency: 'UAH'
+    }).format(cents / 100);
+  };
+
+  function getUniqueOptions(index, filters = {}) {
+    const values = new Set();
+    variants.forEach(variant => {
+      let match = true;
+      for (let key in filters) {
+        if (variant[`option${key}`] !== filters[key]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) values.add(variant[`option${index}`]);
+    });
+    return Array.from(values);
+  }
+
+  function populateSelect(select, values) {
+    select.innerHTML = '';
+    values.forEach(val => {
+      const option = document.createElement('option');
+      option.value = val;
+      option.textContent = val;
+      select.appendChild(option);
+    });
+  }
+
+  function updateOptions() {
+    const selected1 = option1.value;
+    const selected2 = option2.value;
+
+    const option2Values = getUniqueOptions(2, { 1: selected1 });
+    populateSelect(option2, option2Values);
+
+    const newSelected2 = option2.value;
+    const option3Values = getUniqueOptions(3, { 1: selected1, 2: newSelected2 });
+    populateSelect(option3, option3Values);
+
+    updatePrice();
+  }
+
+  function updatePrice() {
+    const selected1 = option1.value;
+    const selected2 = option2.value;
+    const selected3 = option3.value;
+
+    const matchingVariant = variants.find(v =>
+      v.option1 === selected1 &&
+      v.option2 === selected2 &&
+      v.option3 === selected3
+    );
+
+    if (matchingVariant) {
+      priceBox.textContent = formatMoney(matchingVariant.price);
+    }
+  }
+
+  function initOptions() {
+    const option1Values = getUniqueOptions(1);
+    populateSelect(option1, option1Values);
+    updateOptions();
+  }
+
+  function addToCart() {
+    const selected1 = option1.value;
+    const selected2 = option2.value;
+    const selected3 = option3.value;
+
+    const matchingVariant = variants.find(v =>
+      v.option1 === selected1 &&
+      v.option2 === selected2 &&
+      v.option3 === selected3
+    );
+
+    if (!matchingVariant) return;
+
+    const properties = {};
+    form.querySelectorAll('[name^="properties["]').forEach(input => {
+      const name = input.name.match(/properties\[(.*)\]/)[1];
+      properties[name] = input.value;
+    });
+
+    const lineItem = {
+      id: matchingVariant.id,
+      quantity: 1,
+      properties: properties
+    };
+
+    fetch('/cart/add.js', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(lineItem)
+    })
+    .then(res => res.json())
+    .then(() => window.location.href = '/checkout')
+    .catch(err => console.error('Error adding to cart:', err));
+  }
+
+  option1.addEventListener("change", updateOptions);
+  option2.addEventListener("change", updateOptions);
+  option3.addEventListener("change", updatePrice);
+
+  checkoutButton.addEventListener("click", function (event) {
+    event.preventDefault();
+    addToCart();
+  });
+
+  initOptions();
+});
+</script>
+
+{% schema %}
+  {
+    "name": "Event Product",
+    "settings": [],
+    "blocks": [
+      {
+        "type": "product_title",
+        "name": "Product Title",
+        "settings": []
+      },
+      {
+        "type": "product_description",
+        "name": "Product Description",
+        "settings": []
+      },
+      {
+        "type": "product_price",
+        "name": "Product Price",
+        "settings": []
+      },
+      {
+        "type": "product_variants",
+        "name": "Product Variants",
+        "settings": []
+      },
+      {
+        "type": "checkout_button",
+        "name": "Checkout Button",
+        "settings": []
+      },
+      {
+        "type": "personal_info_fields",
+        "name": "Personal Info Fields",
+        "settings": []
+      }
+    ]
+  }
+{% endschema %}
